@@ -3,21 +3,27 @@ import csv
 from scipy import special
 from scipy.special import comb
 import math
+import matplotlib.pyplot as plt
+from turtle import color
 
 R = 1/2
 S_REG = 3 # レジスタ数
 LENGTH = 259 # 符号長
 LT3 = int(LENGTH * 1/R)
 TEST = 100000 # テスト回数
+#TEST = 1
 OUTPUT_BIT = 2
 
 # 初期化
-tdata = rdata = np.zeros((TEST, LENGTH), dtype= int)
+tdata = rdata = rdata_noncode = transmit_noncode = np.zeros((TEST, LENGTH), dtype= int)
 tcode = rcode = np.zeros((TEST, LT3), dtype= int)
 transmit = receive = np.zeros((TEST, LT3))
 array = [['SNR', 'BER']]
 path = './test.csv'  # CSVの書き込みpath．任意で変えて．
-
+snr_list = []
+ber_list = []
+ber_noncode_list = []
+limits = []
 # tdata: 符号化前の送信データ
 # tcode: 符号化後の送信データ
 # rdata: 復号化前の受信データ
@@ -103,24 +109,23 @@ def stats_init():
     s110 = Stats(6)
     s111 = Stats(7)
     stats = [s000,s001,s010,s011,s100,s101,s110,s111]
-    s000.path = []
     s000.flag = True
-    s000.dist = 0
+    s000.pre_dist = 0
 
     return stats
 
 def upper_limit(SNRdB):
     ck = [2,7,18,49,130,333,836,2069]
-    p = special.erfc(math.sqrt(R*10^(SNRdB/10)))/2
+    p = special.erfc(math.sqrt(R*10**(SNRdB/10)))/2
     sum = 0
     for k in range(6,13):
         Pk = 0
         if(k%2==0):
             for e in range(k//2+1,k+1):
-                Pk += comb(k,e)* p^e (1-p)^(k-e) + 1/2 * comb(k,k//2) * p^(k//2) (1-p)^(k//2)
+                Pk += comb(k,e)* p**e *(1-p)**(k-e) + 1/2 * comb(k,k//2) * p**(k//2) * (1-p)**(k//2)
         else:
             for e in range((k+1)//2,k+1):
-                Pk += comb(k,e) * p^e * (1-p)^(k-e)
+                Pk += comb(k,e) * p**e * (1-p)**(k-e)
         
         sum += Pk*(ck[k-6])
     
@@ -152,14 +157,18 @@ if __name__ == '__main__':
         # BPSK変調
         transmit[tcode == 0] = -1
         transmit[tcode == 1] = 1
-
+        transmit_noncode[tdata == 0] = -1
+        transmit_noncode[tdata == 1] = 1
         # 伝送
         receive = transmit + awgn(SNRdB, (TEST, LT3))
-        receive_1 = tdata + awgn(SNRdB,(TEST, LENGTH))
+        receive_noncode = transmit_noncode + awgn(SNRdB,(TEST, LENGTH))
 
         # BPSK復調
         rcode[receive < 0] = 0
         rcode[receive >= 0] = 1
+
+        rdata_noncode[receive_noncode < 0] = 0
+        rdata_noncode[receive_noncode >= 0] = 1
 
         # ビタビ復号
         for j in range(TEST):
@@ -170,16 +179,28 @@ if __name__ == '__main__':
                   i.pre_dist = i.next_dist
                   i.next_dist = 100
                   i.pre_path = i.next_path
+            result  = stats[0].pre_path
+            tmp = np.array(result)
+            rdata[j] = tmp
+        rdata.reshape(TEST,LENGTH)
         
         # 誤り回数計算
         ok = np.count_nonzero(rdata == tdata)
         error = rdata.size - ok
         
-        ok_1 = np.count_nonzero(receive_1 == tdata)
-        error = receive_1.size - ok_1
+        ok_noncode = np.count_nonzero(rdata_noncode == tdata)
+        error_noncode = rdata_noncode.size - ok_noncode
 
         # BER計算
         BER = error / (ok + error)
+        BER_NONCODE = error_noncode / (ok_noncode + error_noncode)
+
+        snr_list.append(SNRdB)
+        ber_list.append(BER)
+        ber_noncode_list.append(BER_NONCODE)
+        
+        limits.append(upper_limit(SNRdB))
+
 
 
         # 結果表示
