@@ -1,4 +1,3 @@
-#Viterbi Soft
 import numpy as np
 import csv
 from scipy import special
@@ -14,23 +13,21 @@ OUTPUT_BIT = 2
 LT3 = LENGTH * OUTPUT_BIT
 TEST = 1000 # テスト回数
 
-#==INIT==
+# 初期化
 tdata = rdata = rdata_noncode = np.zeros((TEST, LENGTH), dtype= int)
 tcode = rcode = outcode = np.zeros((TEST, LT3), dtype= int)
 transmit = receive = np.zeros((TEST, LT3))
 transmit_noncode = np.zeros((TEST,LENGTH))
-array = [['SNR', 'BER_AWGN_RAY','BER_non_AWGN_RAY']]
+array = [['SNR', 'BER']]
 
-#==CSV SETTING==
+# CSV init
 path = '/content/drive/MyDrive/Viterbi/'  
 name = 'limits.csv'
 
-#==OUTPUT==
+# Ouputs
 snr_list = []
-ber_list_awgn_ray = []
-#ber_list_awgn = []
-ber_noncode_list_awgn_ray = []
-#ber_noncode_list_awgn = []
+ber_list = []
+ber_noncode_list = []
 limits = []
 
 # tdata: 符号化前の送信データ
@@ -40,14 +37,12 @@ limits = []
 # transmit: 送信信号
 # receive: 受信信号
 
-
-#==AWGN==
 def awgn(SNRdB, size):
     # awgnを作る
     No = OUTPUT_BIT * 10**(-SNRdB/10)
     return np.random.normal( 0, np.sqrt(No/2),size)+ 1j* np.random.normal( 0, np.sqrt(No/2),size)
 
-#==CODING==
+
 def encoder(tdata):
     # Register state : r (bits)
     # Input : x,OUTPUT : c
@@ -67,7 +62,7 @@ def encoder(tdata):
             outcode[row][2*col+1] = c0
     return outcode.astype(int).reshape(TEST,LT3)
 
-#==STATUS CLASS==
+
 class Status:
   def __init__(self,x):
     self.index = x
@@ -78,31 +73,13 @@ class Status:
     self.pre_path = []
     self.next_path = []
 
-def status_init():
-    s000 = Status(0)
-    s001 = Status(1)
-    s010 = Status(2)
-    s011 = Status(3)
-    s100 = Status(4)
-    s101 = Status(5)
-    s110 = Status(6)
-    s111 = Status(7)
-    status = [s000,s001,s010,s011,s100,s101,s110,s111]
-    s000.flag = True
-    s000.pre_dist = 0
-
-    return status
-
-#==DECODING PROCESS==
 def forward(rcode,addr,outcode,status,current,signals,h):
     
-    #calculating branch metric
     receive = np.array([rcode])
     channel_parameters = np.array([h])
     metric = outcode * receive * channel_parameters
     metric = metric.sum(1)
 
-    #choosing path metric
     for j in range(len(addr)):
         source = status[current[j]]
         if(source.flag == True):
@@ -132,7 +109,22 @@ def forward(rcode,addr,outcode,status,current,signals,h):
                     dest_status.next_dist = new_dist
                     dest_status.next_path = new_path
 
-#==UPPER LIMIT==
+
+def status_init():
+    s000 = Status(0)
+    s001 = Status(1)
+    s010 = Status(2)
+    s011 = Status(3)
+    s100 = Status(4)
+    s101 = Status(5)
+    s110 = Status(6)
+    s111 = Status(7)
+    status = [s000,s001,s010,s011,s100,s101,s110,s111]
+    s000.flag = True
+    s000.pre_dist = 0
+
+    return status
+
 def upper_limit(SNRdB):
     ck = [2,7,18,49,130,333,836,2069]
     p = math.erfc(math.sqrt( R * 10**(SNRdB/10) ))/2
@@ -162,107 +154,67 @@ if __name__ == '__main__':
     nexts = np.array([0,1,1,2,2,3,3,4,-4,-3,-3,-2,-2,-1,-1,0])
     addr = current + nexts
 
-    #SIMULATION
+    # 伝送シミュレーション
     for SNRdB in np.arange(0, 6.25, 0.25):
-        #==GENERATING DATA==
+        # 送信データの生成
         tdata = np.random.randint(0, 2, (TEST, LENGTH - S_REG))
         tdata = np.append(tdata,np.zeros((TEST,S_REG),dtype= int),axis=1)
 
-        #==CODING==
+        # 畳み込み符号化
         tcode = encoder(tdata)
 
-        #==BPSK==
-        #coded
+        # BPSK変調
         transmit[tcode == 0] = -1
         transmit[tcode == 1] = 1
-        """
-        #noncode
-        transmit_noncode[tdata == 0] = -1
-        transmit_noncode[tdata == 1] = 1
-        """
 
-        #channel parameters
+        # チャネル係数
         h_channel = np.random.rayleigh(scale = 1,size = (TEST,LT3))
-        h_noncode = np.random.rayleigh(scale = 1,size = (TEST,LENGTH))
+        h_nocode = np.random.rayleigh(scale = 1,size = (TEST,LENGTH))
 
-        #==SENDING==
-        #coded
+        # 伝送
         receive_awgn_ray = h_channel * transmit + awgn(SNRdB, (TEST, LT3))
-        #receive_awgn = transmit + awgn(SNRdB, (TEST, LT3))
-        
-        #noncode
-        #r_noncode = h_noncode * transmit_noncode + awgn(SNRdB,(TEST, LENGTH))
+        receive_awgn = transmit + awgn(SNRdB, (TEST, LT3))
+        #receive_noncode_awgn_ray = h_noncode * transmit_noncode + awgn(SNRdB,(TEST, LENGTH))
         #receive_noncode_awgn = transmit_noncode + awgn(SNRdB,(TEST, LENGTH))
         
 
-        #==VITERBI DECODING==
+        # ビタビ復号
         h_channel = h_channel.reshape(TEST,LENGTH,2)
         receive_awgn_ray = receive_awgn_ray.reshape(TEST,LENGTH,2)
 
         for j in range(TEST):
             status = status_init()
             for i,rcode in enumerate(receive_awgn_ray[j]):
-                #processing
                 forward(rcode,addr,outputs,status,current,signals,h_channel[j][i])
-                #status prepare
                 for k in status:
                   k.pre_dist = k.next_dist
                   k.next_dist = -100
                   k.pre_path = k.next_path
-            #adding decoded path
+            #TESTごとに追加
             tmp = np.array(status[0].pre_path)
             rdata[j] = tmp
         rdata.reshape(TEST,LENGTH)
-    
-        """
-        #==BPSK for noncode==
-        rdata_noncode[r_noncode < 0] = 0
-        rdata_noncode[r_noncode >= 0] = 1
-        """
-        
-        #==BER==
-        #awgn,ray
+  
+        # 誤り回数計算
         ok = np.count_nonzero(rdata == tdata)
         error = rdata.size - ok
+
+        # BER計算
         BER = error / (ok + error)
-        #awgn
-        """
-        ok = np.count_nonzero(rdata_awgn == tdata)
-        error = rdata_awgn.size - ok
-        BER_AWGN = error / (ok + error)
-    
-        #NONCODE,awgn,ray
-        ok_noncode = np.count_nonzero(rdata_noncode_awgn_ray == tdata)
-        error_noncode = rdata_noncode_awgn_ray.size - ok_noncode
-        NONCODE = error_noncode / (ok_noncode + error_noncode)
-        
-        #NONCODE,awgn
-        ok_noncode = np.count_nonzero(rdata_noncode_awgn == tdata_noncode)
-        error_noncode = rdata_noncode_awgn.size - ok_noncode
-        NONCODE_AWGN = error_noncode / (ok_noncode + error_noncode)
-        """
-        
 
         #理論上界
         #UPPER = upper_limit(SNRdB)
 
         snr_list.append(SNRdB)
-        ber_list_awgn_ray.append(BER)
-        #ber_list_awgn.append(BER_AWGN)
-
-        #ber_noncode_list_awgn_ray.append(NONCODE)
-        #ber_noncode_list_awgn.append(BER_NONCODE_AWGN)
+        ber_list.append(BER)
 
         # 結果表示
         print(
-            "SNR: {0:.2f}, BER1: {1:.4e}".format(
+            "SNR: {0:.2f}, BER: {1:.4e}".format(
                 SNRdB, BER
             )
         )
 
         array.append([SNRdB, BER])
-        plt.plot(snr_list, ber_list_awgn_ray, label="simulation(hard)", color="blue")
-        #plt.plot(snr_list, ber_list_awgn, label="simulation(hard)", color="red")
-        #plt.plot(snr_list, ber_noncode_list_awgn_ray, label="simulation(hard)", color="green")
-        #plt.plot(snr_list, ber_noncode_list_awgn, label="simulation(hard)", color="yellow")
+        plt.plot(snr_list, ber_list, label="simulation(hard)", color="blue")
         plt.yscale("log")
